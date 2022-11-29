@@ -1,0 +1,19 @@
+{
+  "name": "fl-test-1",
+  "version": "1.0.0",
+  "description": "",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "release": "node scripts/release.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chalk": "^5.1.2",
+    "enquirer": "^2.3.6",
+    "execa": "^6.1.0",
+    "minimist": "^1.2.7",
+    "semver": "^7.3.8"
+  }
+}
