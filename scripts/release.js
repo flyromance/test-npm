@@ -6,18 +6,58 @@ const semver = require("semver");
 const { prompt } = require("enquirer");
 const execa = require("execa");
 
-const currentVersion = require("../package.json").version;
+const { version: currentVersion, name: pkgName } = require("../package.json");
 
+function exit() {
+  process.exit(0);
+}
+
+// console.log(semver.prerelease("v1.0.0-alpha.1")); // 有pre配置 ['alpha', 1]
+// console.log(semver.prerelease("v1.0.0")); // 没有pre配置 null
+
+// console.log(semver.coerce('v1.0.0-alpha.1'))
+// console.log(semver.clean('v1.0.0-alpha.1'))
+// console.log(semver.parse('v1.0.0-alpha.1'))
+// console.log(semver.compare('3.0.0', '3.0.0')) 0相等 -1表示小于 1大于
+// console.log(semver.satisfies("3.0.0", "> 3.0.0 || 2.0.0"));
+
+// 没有pre，对应的 major/minor/patch +1
+// 有pre，对应的 major/minor/patch 不变，去掉pre
+console.log(semver.inc("1.0.0", "major", "alpha"));
+console.log(semver.inc("1.0.0-alpha.1", "major", "alpha"));
+console.log(semver.inc("1.0.0-alpha.1", "minor", "alpha"));
+
+// 对应的 major/minor/patch +1，去掉原有的pre，添加新的pre，xxx.0
+console.log(semver.inc("1.0.0", "premajor", "alpha"));
+console.log(semver.inc("1.0.0-alpha.1", "preminor", "alpha"));
+console.log(semver.inc("1.0.0-alpha.1", "prepatch", "beta"));
+
+// 没有pre，major/minor 不变，patch + 1，添加新pre， xxx.0
+// 有pre，major/minor/patch 不变，当前pre一样则数字+1，否则改为第三个参数.0
+console.log(semver.inc("1.0.0", "prerelease", "alpha")); // 1.0.1-alpha.0
+console.log(semver.inc("1.0.0-alpha.1", "prerelease", "alpha")); // 1.0.0-alpha.2
+console.log(semver.inc("1.0.0-alpha.1", "prerelease", "beta")); // 1.0.0-beta.0
+
+// exit();
+
+// alpha beta rc
 const preId =
   args.preid ||
   (semver.prerelease(currentVersion) && semver.prerelease(currentVersion)[0]);
 const isDryRun = args.dry;
 const skipTests = args.skipTests;
 const skipBuild = args.skipBuild;
-const packages = fs
-  .readdirSync(path.resolve(__dirname, "../packages"))
-  .filter((p) => !p.endsWith(".ts") && !p.startsWith("."))
-  .concat("vue");
+// const packages = fs
+//   .readdirSync(path.resolve(__dirname, "../packages"))
+//   .filter((p) => !p.endsWith(".ts") && !p.startsWith("."))
+//   .concat("vue");
+
+const packages = [
+  {
+    name: pkgName,
+    dir: path.join(__dirname, "../"),
+  },
+];
 
 const versionIncrements = [
   "patch",
@@ -79,21 +119,21 @@ async function main() {
   // run tests before release
   step("\nRunning tests...");
   if (!skipTests && !isDryRun) {
-    await run("pnpm", ["test"]);
+    await run("npm", ["run", "test"]);
   } else {
     console.log(`(skipped)`);
   }
 
   // update all package versions and inter-dependencies
   step("\nUpdating package versions...");
-  packages.forEach((p) => updatePackage(getPkgRoot(p), targetVersion));
+  packages.forEach((p) => updatePackage(p.dir, targetVersion));
 
   // build all packages with types
   step("\nBuilding all packages...");
   if (!skipBuild && !isDryRun) {
-    await run("pnpm", ["run", "build"]);
+    await run("npm", ["run", "build"]);
     if (skipTests) {
-      await run("pnpm", ["run", "build:types"]);
+      await run("npm", ["run", "build:types"]);
     }
   } else {
     console.log(`(skipped)`);
@@ -101,11 +141,11 @@ async function main() {
 
   // generate changelog
   step("\nGenerating changelog...");
-  await run(`pnpm`, ["run", "changelog"]);
+  await run(`npm`, ["run", "changelog"]);
 
   // update pnpm-lock.yaml
   step("\nUpdating lockfile...");
-  await run(`pnpm`, ["install", "--prefer-offline"]);
+  // await run(`npm`, ["install", "--prefer-offline"]);
 
   const { stdout } = await run("git", ["diff"], { stdio: "pipe" });
   if (stdout) {
@@ -141,13 +181,8 @@ function updatePackage(pkgRoot, version) {
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 }
 
-const getPkgRoot = (pkg) =>
-  pkg === "vue"
-    ? path.resolve(__dirname, "../")
-    : path.resolve(__dirname, "../packages/" + pkg);
-
-async function publishPackage(pkgName, version, runIfNotDry) {
-  const pkgRoot = getPkgRoot(pkgName);
+async function publishPackage(conf, version, runIfNotDry) {
+  const pkgRoot = conf.dir;
   const pkgPath = path.resolve(pkgRoot, "package.json");
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
   const publishedName = pkg.name;
@@ -166,24 +201,16 @@ async function publishPackage(pkgName, version, runIfNotDry) {
     releaseTag = "rc";
   }
 
-  // avoid overwriting tags for v3
-  if (pkgName === "vue" || pkgName === "compiler-sfc") {
-    if (releaseTag) {
-      releaseTag = `v2-${releaseTag}`;
-    } else {
-      releaseTag = "v2-latest";
-    }
-  }
-
   step(`Publishing ${publishedName}...`);
   try {
     await runIfNotDry(
-      "pnpm",
+      "npm",
       [
         "publish",
         ...(releaseTag ? ["--tag", releaseTag] : []),
         "--access",
         "public",
+        "--dry-run",
       ],
       {
         cwd: pkgRoot,

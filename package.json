@@ -1,18 +1,21 @@
 {
   "name": "fl-test-1",
-  "version": "1.0.0",
+  "version": "3.0.0-alpha.0",
   "description": "",
   "main": "lib/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "echo build success",
+    "build:types": "echo build:types success",
+    "test": "echo test success",
+    "changelog": "echo changelog success",
     "release": "node scripts/release.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "chalk": "^5.1.2",
+    "chalk": "^4.1.2",
     "enquirer": "^2.3.6",
-    "execa": "^6.1.0",
+    "execa": "^5.1.1",
     "minimist": "^1.2.7",
     "semver": "^7.3.8"
   }
