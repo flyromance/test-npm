@@ -1,6 +1,6 @@
 {
   "name": "fl-test-1",
-  "version": "3.0.0-alpha.0",
+  "version": "3.0.0-alpha.3",
   "description": "",
   "main": "lib/index.js",
   "scripts": {
@@ -9,6 +9,13 @@
     "test": "echo test success",
     "changelog": "echo changelog success",
     "release": "node scripts/release.js"
+  },
+  "files": [
+    "dist",
+    "lib"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
   },
   "author": "",
   "license": "ISC",
