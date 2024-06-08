@@ -1,6 +1,6 @@
 {
   "name": "fl-test-1",
-  "version": "3.0.0-alpha.3",
+  "version": "3.0.0",
   "description": "",
   "main": "lib/index.js",
   "scripts": {
@@ -8,7 +8,14 @@
     "build:types": "echo build:types success",
     "test": "echo test success",
     "changelog": "echo changelog success",
-    "release": "node scripts/release.js"
+    "release": "node scripts/release.js",
+    "preinstall": "echo preinstall",
+    "install": "node a.js",
+    "postinstall": "echo postinstall",
+    "testnpm": "node -e 'console.log(process.env)' | grep npm_lifecycle"
+  },
+  "config": {
+    "xxxx": 123
   },
   "files": [
     "dist",
@@ -24,6 +31,7 @@
     "enquirer": "^2.3.6",
     "execa": "^5.1.1",
     "minimist": "^1.2.7",
+    "rollup": "^2.79.1",
     "semver": "^7.3.8"
   }
 }

@@ -1,44 +1,14 @@
-const args = require("minimist")(process.argv.slice(2));
+// from https://github.com/vuejs/vue/blob/main/scripts/release.js
 const fs = require("fs");
 const path = require("path");
+
+const args = require("minimist")(process.argv.slice(2));
 const chalk = require("chalk");
 const semver = require("semver");
 const { prompt } = require("enquirer");
 const execa = require("execa");
 
 const { version: currentVersion, name: pkgName } = require("../package.json");
-
-function exit() {
-  process.exit(0);
-}
-
-// console.log(semver.prerelease("v1.0.0-alpha.1")); // 有pre配置 ['alpha', 1]
-// console.log(semver.prerelease("v1.0.0")); // 没有pre配置 null
-
-// console.log(semver.coerce('v1.0.0-alpha.1'))
-// console.log(semver.clean('v1.0.0-alpha.1'))
-// console.log(semver.parse('v1.0.0-alpha.1'))
-// console.log(semver.compare('3.0.0', '3.0.0')) 0相等 -1表示小于 1大于
-// console.log(semver.satisfies("3.0.0", "> 3.0.0 || 2.0.0"));
-
-// 没有pre，对应的 major/minor/patch +1
-// 有pre，对应的 major/minor/patch 不变，去掉pre
-console.log(semver.inc("1.0.0", "major", "alpha"));
-console.log(semver.inc("1.0.0-alpha.1", "major", "alpha"));
-console.log(semver.inc("1.0.0-alpha.1", "minor", "alpha"));
-
-// 对应的 major/minor/patch +1，去掉原有的pre，添加新的pre，xxx.0
-console.log(semver.inc("1.0.0", "premajor", "alpha"));
-console.log(semver.inc("1.0.0-alpha.1", "preminor", "alpha"));
-console.log(semver.inc("1.0.0-alpha.1", "prepatch", "beta"));
-
-// 没有pre，major/minor 不变，patch + 1，添加新pre， xxx.0
-// 有pre，major/minor/patch 不变，当前pre一样则数字+1，否则改为第三个参数.0
-console.log(semver.inc("1.0.0", "prerelease", "alpha")); // 1.0.1-alpha.0
-console.log(semver.inc("1.0.0-alpha.1", "prerelease", "alpha")); // 1.0.0-alpha.2
-console.log(semver.inc("1.0.0-alpha.1", "prerelease", "beta")); // 1.0.0-beta.0
-
-// exit();
 
 // alpha beta rc
 const preId =
@@ -47,6 +17,7 @@ const preId =
 const isDryRun = args.dry;
 const skipTests = args.skipTests;
 const skipBuild = args.skipBuild;
+
 // const packages = fs
 //   .readdirSync(path.resolve(__dirname, "../packages"))
 //   .filter((p) => !p.endsWith(".ts") && !p.startsWith("."))
@@ -74,9 +45,73 @@ const dryRun = (bin, args, opts = {}) =>
 const runIfNotDry = isDryRun ? dryRun : run;
 const step = (msg) => console.log(chalk.cyan(msg));
 
+function updatePackage(pkgRoot, version) {
+  if (isDryRun) {
+    console.log(
+      chalk.blue(
+        `[dryrun] modify ${pkgRoot}/package.json version to [${version}]`
+      )
+    );
+  } else {
+    const pkgPath = path.resolve(pkgRoot, "package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    pkg.version = version;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  }
+}
+
+async function publishPackage(conf, version, runIfNotDry) {
+  const pkgRoot = conf.dir;
+  const pkgPath = path.resolve(pkgRoot, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  const publishedName = pkg.name;
+  if (pkg.private) {
+    return;
+  }
+
+  let releaseTag = null;
+  if (args.tag) {
+    releaseTag = args.tag;
+  } else if (version.includes("alpha")) {
+    releaseTag = "alpha";
+  } else if (version.includes("beta")) {
+    releaseTag = "beta";
+  } else if (version.includes("rc")) {
+    releaseTag = "rc";
+  }
+
+  step(`Publishing ${publishedName}...`);
+  try {
+    await runIfNotDry(
+      "npm",
+      [
+        "publish",
+        ...(releaseTag ? ["--tag", releaseTag] : []),
+        "--access",
+        "public",
+        // "--dry-run",
+      ],
+      {
+        cwd: pkgRoot,
+        stdio: "pipe",
+      }
+    );
+    console.log(
+      chalk.green(`Successfully published ${publishedName}@${version}`)
+    );
+  } catch (e) {
+    if (e.stderr.match(/previously published/)) {
+      console.log(chalk.red(`Skipping already published: ${publishedName}`));
+    } else {
+      throw e;
+    }
+  }
+}
+
 async function main() {
   let targetVersion = args._[0];
 
+  // 1. 确定版本
   if (!targetVersion) {
     // no explicit version, offer suggestions
     const { release } = await prompt({
@@ -116,37 +151,36 @@ async function main() {
     return;
   }
 
-  // run tests before release
+  // 2. 测试
   step("\nRunning tests...");
   if (!skipTests && !isDryRun) {
     await run("npm", ["run", "test"]);
   } else {
-    console.log(`(skipped)`);
+    console.log(`(test skipped)`);
   }
 
-  // update all package versions and inter-dependencies
+  // 3. 更新package.json中的version字段
   step("\nUpdating package versions...");
   packages.forEach((p) => updatePackage(p.dir, targetVersion));
 
-  // build all packages with types
+  // 4. 构建
   step("\nBuilding all packages...");
-  if (!skipBuild && !isDryRun) {
-    await run("npm", ["run", "build"]);
-    if (skipTests) {
-      await run("npm", ["run", "build:types"]);
-    }
+  if (!skipBuild) {
+    await runIfNotDry("npm", ["run", "build"]);
+    await runIfNotDry("npm", ["run", "build:types"]);
   } else {
-    console.log(`(skipped)`);
+    console.log(`(build skipped)`);
   }
 
-  // generate changelog
+  // 5. 改动日志
   step("\nGenerating changelog...");
-  await run(`npm`, ["run", "changelog"]);
+  await runIfNotDry(`npm`, ["run", "changelog"]);
 
-  // update pnpm-lock.yaml
-  step("\nUpdating lockfile...");
-  // await run(`npm`, ["install", "--prefer-offline"]);
+  // 6. 更新 pnpm-lock.yaml
+  // step("\nUpdating lockfile...");
+  // await runIfNotDry(`npm`, ["install", "--prefer-offline"]);
 
+  // 7. commit
   const { stdout } = await run("git", ["diff"], { stdio: "pipe" });
   if (stdout) {
     step("\nCommitting changes...");
@@ -156,77 +190,22 @@ async function main() {
     console.log("No changes to commit.");
   }
 
-  // publish packages
+  // 8. 发布 package
   step("\nPublishing packages...");
   for (const pkg of packages) {
     await publishPackage(pkg, targetVersion, runIfNotDry);
   }
 
-  // push to GitHub
+  // 9. 推送 release 和 tag
   step("\nPushing to GitHub...");
   await runIfNotDry("git", ["tag", `v${targetVersion}`]);
-  await runIfNotDry("git", ["push", "origin", `refs/tags/v${targetVersion}`]);
+  await runIfNotDry("git", ["push", "origin", `refs/tags/v${targetVersion}`]); // git push 不会把tag推到远程
   await runIfNotDry("git", ["push"]);
 
   if (isDryRun) {
     console.log(`\nDry run finished - run git diff to see package changes.`);
   }
   console.log();
-}
-
-function updatePackage(pkgRoot, version) {
-  const pkgPath = path.resolve(pkgRoot, "package.json");
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  pkg.version = version;
-  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-}
-
-async function publishPackage(conf, version, runIfNotDry) {
-  const pkgRoot = conf.dir;
-  const pkgPath = path.resolve(pkgRoot, "package.json");
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  const publishedName = pkg.name;
-  if (pkg.private) {
-    return;
-  }
-
-  let releaseTag = null;
-  if (args.tag) {
-    releaseTag = args.tag;
-  } else if (version.includes("alpha")) {
-    releaseTag = "alpha";
-  } else if (version.includes("beta")) {
-    releaseTag = "beta";
-  } else if (version.includes("rc")) {
-    releaseTag = "rc";
-  }
-
-  step(`Publishing ${publishedName}...`);
-  try {
-    await runIfNotDry(
-      "npm",
-      [
-        "publish",
-        ...(releaseTag ? ["--tag", releaseTag] : []),
-        "--access",
-        "public",
-        "--dry-run",
-      ],
-      {
-        cwd: pkgRoot,
-        stdio: "pipe",
-      }
-    );
-    console.log(
-      chalk.green(`Successfully published ${publishedName}@${version}`)
-    );
-  } catch (e) {
-    if (e.stderr.match(/previously published/)) {
-      console.log(chalk.red(`Skipping already published: ${publishedName}`));
-    } else {
-      throw e;
-    }
-  }
 }
 
 main();
